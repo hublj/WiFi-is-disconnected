@@ -1,0 +1,170 @@
+void loop() {
+
+unsigned long currentMillis = millis();
+
+    // 检查是否为上电或重启后的首次进入loop且WiFi未连接
+    if (isPowerOnInitialConnection && WiFi.status()!= WL_CONNECTED) {
+        if (currentMillis - lastIPCheckTime >= 30000) { // 每30秒检查一次
+            lastIPCheckTime = currentMillis;
+            attemptPowerOnWiFiConnection();
+        }
+    } else {
+        // 如果不是上电或重启后的首次尝试，或者WiFi已连接，则执行原有逻辑
+        // 其他原有代码保持不变...
+    }
+
+        // 检查WiFi连接状态
+    if (WiFi.status()!= WL_CONNECTED) {
+        // 如果WiFi断开连接
+        if (currentMillis - lastIPCheckTime >= 30000) { // 每30秒检查一次（原先是3分钟，修改为30秒）
+            lastIPCheckTime = currentMillis;
+            attemptWiFiConnection(); // 调用新的连接尝试函数
+        }
+    } else {
+        // 如果WiFi连接成功
+        if (isInitialConnectionAttempt) {
+            isInitialConnectionAttempt = false;
+            totalReconnectAttempts = 0;
+        }
+        wifiConnectAttempts = 0; // 连接成功后重置连接尝试次数
+        // 其他成功后的处理代码保持不变...
+    }
+
+    // 检查WiFi连接状态
+    if (WiFi.status()!= WL_CONNECTED) {
+        // 如果WiFi断开连接
+        if (currentMillis - lastIPCheckTime >= 3 * 60 * 1000) {  // 每 3 分钟检查一次
+            lastIPCheckTime = currentMillis;
+            if (wifiReconnectAttempts < 3) {
+                // 尝试重新连接WiFi
+                Serial.println("正在尝试重新连接WiFi...");
+                WiFi.begin();
+                wifiReconnectAttempts++;
+            } else {
+                // 如果多次尝试失败，设置ESP8266为AP模式并打印IP地址
+                Serial.println("WiFi多次连接失败，设置为AP模式，IP地址为: 192.168.4.1");
+                // 这里可以添加设置AP模式的代码，例如：WiFi.mode(WIFI_AP); 等相关设置
+                // 同时可以考虑在OLED上显示相关信息告知用户当前状态及如何连接进行配置
+                display.clearDisplay();
+                display.setTextSize(1);
+                display.setTextColor(WHITE);
+                display.setCursor(0, 0);
+                display.println("WiFi连接失败，已进入AP模式");
+                display.println("IP: 192.168.4.1");
+                display.println("请连接后重新配置网络");
+                display.display();
+            }
+        }
+    } else {
+        // 如果WiFi连接成功
+        if (isInitialConnectionAttempt) {
+            isInitialConnectionAttempt = false; 
+            totalReconnectAttempts = 0; 
+        }
+        wifiReconnectAttempts = 0; 
+        
+      // 读取清除配置按键的状态
+    int buttonState = digitalRead(clearConfigButtonPin);
+    // 检测按键是否按下（低电平表示按下，这里做简单防抖处理，可根据实际优化更严谨的防抖）
+    if (buttonState == LOW) {
+        delay(10); // 短暂延迟防抖
+        if (digitalRead(clearConfigButtonPin) == LOW) {
+            WiFiManager wifiManager;
+            wifiManager.resetSettings();
+            Serial.println("已清除WiFi配置信息，等待重新配置");
+            // 可以在这里添加代码在OLED上显示提示信息告知用户配置已清除，比如：
+            display.clearDisplay();
+            display.setTextSize(1);
+            display.setTextColor(WHITE);
+            display.setCursor(0, 0);
+            display.println("The WiFi configuration has been cleared, please reconfigure");
+            display.display();
+            // 等待一段时间，避免频繁触发清除操作（可根据实际调整等待时间）
+            delay(2000);
+        }
+    }
+
+// 检查WiFi状态，如果连接断开，显示相应提示并尝试重新配置
+    if (WiFi.status()!= WL_CONNECTED) {
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(WHITE);
+        display.setCursor(0, 0);
+
+        // 记录连接断开的起始时间
+        static unsigned long disconnectStartTime = millis();
+
+        // 如果断开时间较短，暂不显示特殊提示
+        if (millis() - disconnectStartTime > 5000) {
+            if (WiFi.getMode() == WIFI_STA && WiFi.SSID().length() > 0) {
+                display.println(WIFI_CHANGED_MSG);
+                Serial.println(WIFI_CHANGED_MSG);
+            } else {
+                display.println(NO_SAVED_NETWORK_MSG);
+                Serial.println(NO_SAVED_NETWORK_MSG);
+            }
+        }
+        display.display();
+
+        WiFiManager wifiManager;
+        if (!wifiManager.autoConnect("ESP8266_Setup")) {
+            Serial.println("重新配置WiFi失败");
+            return;
+        }
+        Serial.println("WiFi重新连接成功");
+
+        // 获取并更新IP地址
+        IPAddress localIP = WiFi.localIP();
+        ipAddressStr = "IP:" + String(localIP[0]) + "." + String(localIP[1]) + "." + String(localIP[2]) + "." + String(localIP[3]);
+
+        // 重置断开时间记录
+        disconnectStartTime = millis();
+    }
+
+    server.handleClient();
+
+    // 更新时间
+    timeClient.update();
+
+    // 获取当前时间
+    TimeInfo currentTime = getCurrentTime();
+
+    // 如果设置了定时，判断是否在定时时间段内并控制继电器1
+    if (isTimedGroup1) {
+        bool isInOnPeriodForGroup1 = isInOnPeriod(startHourForGroup1, startMinuteForGroup1, endHourForGroup1, endMinuteForGroup1);
+        if (isInOnPeriodForGroup1) {
+            digitalWrite(relay1Pin, HIGH);
+            Serial.println("Group 1 is ON");
+        } else {
+            digitalWrite(relay1Pin, LOW);
+            Serial.println("Group 1 is OFF");
+        }
+    }
+
+    // 如果设置了定时，判断是否在定时时间段内并控制继电器2
+    if (isTimedGroup2) {
+        bool isInOnPeriodForGroup2 = isInOnPeriod(startHourForGroup2, startMinuteForGroup2, endHourForGroup2, endMinuteForGroup2);
+        if (isInOnPeriodForGroup2) {
+            digitalWrite(relay2Pin, HIGH);
+            Serial.println("Group 2 is ON");
+        } else {
+            digitalWrite(relay2Pin, LOW);
+            Serial.println("Group 2 is OFF");
+        }
+    }
+
+
+    // 检查是否到达一定时间间隔（这里是5分钟，300000毫秒），更新IP地址和OLED显示
+    if (millis() - lastIPCheckTime >= 300000) {
+        if (WiFi.status() == WL_CONNECTED) {
+            IPAddress localIP = WiFi.localIP();
+            ipAddressStr = "IP:" + String(localIP[0]) + "." + String(localIP[1]) + "." + String(localIP[2]) + "." + String(localIP[3]);
+        }
+        updateOLED();
+        lastIPCheckTime = millis();
+    }
+
+    updateOLED();
+    delay(1000);
+}
+}
