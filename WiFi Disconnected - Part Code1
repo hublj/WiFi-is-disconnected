@@ -1,0 +1,73 @@
+// 记录总的WiFi连接尝试次数
+int totalReconnectAttempts = 0; 
+// 标记是否处于首次启动后的连接尝试阶段
+bool isInitialConnectionAttempt = true; 
+
+void setup() {
+    Serial.begin(115200);
+    totalReconnectAttempts = 0;
+    // 其他原有初始化代码保持不变
+    // 例如引脚初始化、OLED初始化、NTP客户端初始化等操作
+ ...
+}
+
+void loop() {
+    unsigned long currentMillis = millis();
+
+    // 检查WiFi连接状态
+    if (WiFi.status()!= WL_CONNECTED) {
+        // 如果WiFi断开连接
+        if (currentMillis - lastIPCheckTime >= (isInitialConnectionAttempt? 30000 : 3 * 60 * 1000)) { 
+            lastIPCheckTime = currentMillis;
+            if (isInitialConnectionAttempt) {
+                if (totalReconnectAttempts < 10) { 
+                    Serial.println("正在尝试重新连接WiFi（首次启动后）...");
+                    WiFi.begin();
+                    totalReconnectAttempts++;
+                } else {
+                    // 首次启动后多次尝试失败，设置ESP8266为AP模式并打印IP地址（可根据实际需求调整）
+                    Serial.println("WiFi多次连接失败（首次启动后），设置为AP模式，IP地址为: 192.168.4.1");
+                    // 这里添加设置AP模式等相关代码
+                    // 同时可以在OLED上显示相关信息告知用户当前状态及如何连接进行配置
+                    display.clearDisplay();
+                    display.setTextSize(1);
+                    display.setTextColor(WHITE);
+                    display.setCursor(0, 0);
+                    display.println("WiFi连接失败（首次启动后），已进入AP模式");
+                    display.println("IP: 192.168.4.1");
+                    display.println("请连接后重新配置网络");
+                    display.display();
+                    isInitialConnectionAttempt = false; 
+                }
+            } else {
+                if (wifiReconnectAttempts < 3) {
+                    Serial.println("正在尝试重新连接WiFi...");
+                    WiFi.begin();
+                    wifiReconnectAttempts++;
+                } else {
+                    // 如果多次尝试失败（正常情况），设置ESP8266为AP模式并打印IP地址（可根据实际需求调整）
+                    Serial.println("WiFi多次连接失败，设置为AP模式，IP地址为: 192.168.4.1");
+                    // 这里添加设置AP模式等相关代码
+                    // 同时可以在OLED上显示相关信息告知用户当前状态及如何连接进行配置
+                    display.clearDisplay();
+                    display.setTextSize(1);
+                    display.setTextColor(WHITE);
+                    display.setCursor(0, 0);
+                    display.println("WiFi连接失败，已进入AP模式");
+                    display.println("IP: 192.168.4.1");
+                    display.println("请连接后重新配置网络");
+                    display.display();
+                }
+            }
+        }
+    } else {
+        // 如果WiFi连接成功
+        if (isInitialConnectionAttempt) {
+            isInitialConnectionAttempt = false; 
+            totalReconnectAttempts = 0; 
+        }
+        wifiReconnectAttempts = 0; 
+        // 其他原有代码保持不变，比如更新OLED显示的网络连接状态等操作
+     ...
+    }
+}
